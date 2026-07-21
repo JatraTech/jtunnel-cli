@@ -67,3 +67,21 @@ Local port detection order for `jtunnel expose` (non-wizard):
 Service names are labels only. Sticky public ports reuse the same name’s last mapping. Max 3 concurrent tunnels.
 
 Last exposed service is remembered as the **default** in `preferences.json`.
+
+## Binary builds
+
+Build a standalone binary with PyInstaller (no Python required on the target machine). Build on the same OS you want to run on — Linux binary on Ubuntu/WSL, `.exe` on Windows.
+
+### Ubuntu / WSL
+
+```bash
+./scripts/build-linux.sh
+sudo install -m 755 dist/jtunnel /usr/local/bin/jtunnel
+```
+
+### Windows
+
+```powershell
+.\scripts\build-windows.ps1
+# then put dist\jtunnel.exe on PATH, or run it directly
+```
