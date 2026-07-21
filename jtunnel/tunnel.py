@@ -112,7 +112,7 @@ class TunnelClient:
             save_active_tunnel(name, public_port=public_port, local_port=local_port)
             entries.append((name, public_url(public_port), local_port))
         print_tunnels_table(entries, title="Connected")
-        print_info("[dim]Press Ctrl+C to disconnect[/]")
+        print_info("Press Ctrl+C to disconnect")
 
         try:
             await asyncio.gather(
@@ -217,5 +217,5 @@ def run(services: dict[str, tuple[int, int]]) -> None:
         asyncio.run(client.run())
     except KeyboardInterrupt as exc:
         client.stop()
-        print_info("\n[dim]Disconnecting...[/]")
+        print_info("\nDisconnecting...")
         raise UserDisconnected from exc

@@ -2,6 +2,8 @@
 
 Expose local services through JT Tunnel. Run `jtunnel` for an interactive menu (recommended), or use commands for scripts/CI.
 
+The interactive UI is plain ASCII with high-contrast ANSI colors (readable on Ubuntu, Windows CMD, and PowerShell).
+
 ## Install
 
 **Linux / macOS**
@@ -53,13 +55,13 @@ Ctrl+C disconnects the tunnel and returns to the menu.
 
 ## Interactive menu
 
-Run bare `jtunnel` in a terminal. The header shows sign-in state, your allocated port range, host, and default tunnel (★).
+Run bare `jtunnel` in a terminal. The header shows sign-in state, your allocated port range, host, and default tunnel (`*`).
 
 | Item | Behavior |
 |------|----------|
 | **Expose** | If a default saved tunnel exists, starts it immediately. Otherwise: choose a saved tunnel, or configure a new one (label + local port). |
 | **Expose multiple** | Start all saved (up to 3), pick which saved to include, or configure new services interactively. |
-| **List tunnels** | Table of saved tunnels. Then: **Start** one, **Set default**, or **Back**. |
+| **List tunnels** | List of saved tunnels. Then: **Start** one, **Set default**, or **Back**. |
 | **Login** / **Logout** | Device-code browser sign-in, or clear local credentials and tunnel state. |
 | **Quit** | Exit the menu. |
 
@@ -95,12 +97,20 @@ Local port when `-p` is omitted:
 
 ## Configuration
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `JTUNNEL_API_BASE` | `https://admin.new901.io` | Django API base URL |
-| `JTUNNEL_HOST` | `wss://jtunnel.new901.io` | Go control WebSocket URL |
-| `JTUNNEL_PUBLIC_HOST` | `jtunnel.new901.io` | Public tunnel hostname |
-| `JTUNNEL_CONFIG_DIR` | `~/.config/jtunnel` | Local config directory |
+Copy `.env.example` to `.env` in the directory where you run `jtunnel`, then edit as needed:
+
+```bash
+cp .env.example .env
+```
+
+Values can also be set as real environment variables (those take precedence over `.env`).
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `JTUNNEL_API_BASE` | yes | Django API base URL |
+| `JTUNNEL_HOST` | yes | Go control WebSocket URL |
+| `JTUNNEL_PUBLIC_HOST` | yes* | Public tunnel hostname (*fallback if not in token/`tunnel.json`) |
+| `JTUNNEL_CONFIG_DIR` | no | Local config directory (`~/.config/jtunnel`) |
 
 After login, port range and host also come from `tunnel.json` or claims in the device token.
 

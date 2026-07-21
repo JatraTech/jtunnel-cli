@@ -5,7 +5,7 @@ datas = []
 binaries = []
 hiddenimports = []
 
-for package in ("certifi", "rich"):
+for package in ("certifi",):
     pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries

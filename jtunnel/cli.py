@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import typer
 import httpx
-from rich.prompt import Confirm, IntPrompt, Prompt
-from rich.status import Status
+import typer
 
 from .auth import open_browser, poll_device_token, start_device_flow
 from .config import (
@@ -33,15 +31,18 @@ from .slots import MaxTunnelServicesError, resolve_services
 from .tunnel import run as run_tunnel
 from .ui import (
     clear_screen,
-    console,
+    confirm,
     header_panel,
     is_interactive,
     login_code_panel,
     menu_choice,
+    pause,
     print_error,
     print_info,
     print_success,
     print_tunnels_table,
+    prompt_int,
+    prompt_text,
     status_panel,
 )
 
@@ -103,7 +104,7 @@ def _run_expose_services(services: dict[str, tuple[int, int]]) -> bool:
     Raises UserDisconnected when the user stops with Ctrl+C.
     """
     names = ", ".join(services)
-    print_info(f"Connecting [cyan]{names}[/]...")
+    print_info(f"Connecting {names}...")
     try:
         run_tunnel(services)
         return True
@@ -126,22 +127,20 @@ def _collect_expose_wizard(max_services: int = 3) -> list[tuple[str, int]]:
     while len(mappings) < max_services:
         n = len(mappings) + 1
         default_name = "default" if n == 1 else f"service{n}"
-        name = Prompt.ask(
+        name = prompt_text(
             f"Service label [{n}/{max_services}]",
             default=default_name,
-            console=console,
         ).strip().lower()
         if not name:
             print_error("Service name is required")
             continue
         if name in used_names:
-            print_error(f"Duplicate name [cyan]{name}[/]")
+            print_error(f"Duplicate name {name}")
             continue
 
-        port = IntPrompt.ask(
+        port = prompt_int(
             "Local port",
             default=default_port if n == 1 else 8000,
-            console=console,
         )
         if port < 1 or port > 65535:
             print_error("Port must be between 1 and 65535")
@@ -152,7 +151,7 @@ def _collect_expose_wizard(max_services: int = 3) -> list[tuple[str, int]]:
 
         if len(mappings) >= max_services:
             break
-        if not Confirm.ask("Add another service?", default=False, console=console):
+        if not confirm("Add another service?", default=False):
             break
 
     return mappings
@@ -161,8 +160,7 @@ def _collect_expose_wizard(max_services: int = 3) -> list[tuple[str, int]]:
 def _pause(message: str | None = None) -> None:
     if message:
         print_info(message)
-    if is_interactive():
-        console.input("[dim]Press Enter to continue…[/] ")
+    pause()
 
 
 def _do_login() -> bool:
@@ -174,16 +172,13 @@ def _do_login() -> bool:
 
     login_code_panel(data["verification_uri"], data["user_code"])
     open_browser(data["verification_uri"])
+    print_info("Waiting for browser approval... (Ctrl+C to cancel)")
 
     try:
-        with Status(
-            "Waiting for browser approval… (Ctrl+C to cancel)",
-            console=console,
-        ):
-            result = poll_device_token(
-                data["device_code"],
-                interval=data.get("interval", 5),
-            )
+        result = poll_device_token(
+            data["device_code"],
+            interval=data.get("interval", 5),
+        )
     except KeyboardInterrupt:
         print_error("Login cancelled.")
         return False
@@ -200,8 +195,8 @@ def _do_login() -> bool:
     tunnel = load_tunnel_config()
     if tunnel:
         print_info(
-            f"  Ports [cyan]{tunnel['port_start']}–{tunnel['port_end']}[/] "
-            f"on [cyan]{tunnel['host']}[/]"
+            f"  Ports {tunnel['port_start']}-{tunnel['port_end']} "
+            f"on {tunnel['host']}"
         )
     return True
 
@@ -209,7 +204,7 @@ def _do_login() -> bool:
 def _do_list() -> None:
     tunnels = load_active_tunnels()
     if not tunnels:
-        print_info("[dim]No saved tunnels. Run expose to create one.[/]")
+        print_info("No saved tunnels. Run expose to create one.")
         return
 
     default = get_default_service()
@@ -218,11 +213,11 @@ def _do_list() -> None:
         if not isinstance(entry, dict):
             continue
         url = entry.get("url") or public_url(int(entry["public_port"]))
-        label = f"{name} ★" if name == default else name
+        label = f"{name} *" if name == default else name
         entries.append((label, str(url), entry.get("local_port", "?")))
     print_tunnels_table(entries, title="Saved tunnels")
     if default:
-        print_info(f"[dim]★ default for Expose: [cyan]{default}[/][/]")
+        print_info(f"* default for Expose: {default}")
 
 
 def _saved_tunnel_mappings() -> list[tuple[str, int]]:
@@ -244,7 +239,7 @@ def _start_saved_tunnel(name: str, local_port: int) -> bool:
     if not services:
         return False
     set_default_service(name)
-    print_info(f"Starting [cyan]{name}[/] → local [cyan]:{local_port}[/]")
+    print_info(f"Starting {name} -> local :{local_port}")
     return _run_expose_services(services)
 
 
@@ -255,22 +250,21 @@ def _start_saved_mappings(mappings: list[tuple[str, int]]) -> bool:
     services = _resolve_services(mappings)
     if not services:
         return False
-    # Remember first as default for quick Expose next time
     set_default_service(mappings[0][0])
     names = ", ".join(f"{n} (:{p})" for n, p in mappings)
-    print_info(f"Starting [cyan]{names}[/]")
+    print_info(f"Starting {names}")
     return _run_expose_services(services)
 
 
 def _pick_saved_tunnel() -> tuple[str, int] | None:
     mappings = _saved_tunnel_mappings()
     if not mappings:
-        print_info("[dim]No saved tunnels.[/]")
+        print_info("No saved tunnels.")
         return None
     default = get_default_service()
     options = []
     for name, port in mappings:
-        mark = " ★" if name == default else ""
+        mark = " *" if name == default else ""
         options.append(f"{name}{mark} (local :{port})")
     options.append("Back")
     choice = menu_choice(options, prompt="Start which tunnel")
@@ -286,7 +280,7 @@ def _pick_saved_tunnel_for_default() -> str | None:
         return None
     current = get_default_service()
     options = [
-        f"{name}{' ★' if name == current else ''} (local :{port})"
+        f"{name}{' *' if name == current else ''} (local :{port})"
         for name, port in mappings
     ]
     options.append("Back")
@@ -300,7 +294,7 @@ def _pick_multiple_saved() -> list[tuple[str, int]] | None:
     """Ask Include? for each saved tunnel until 3 chosen or user stops."""
     mappings = _saved_tunnel_mappings()
     if not mappings:
-        print_info("[dim]No saved tunnels.[/]")
+        print_info("No saved tunnels.")
         return None
 
     _do_list()
@@ -308,10 +302,9 @@ def _pick_multiple_saved() -> list[tuple[str, int]] | None:
     for name, port in mappings:
         if len(selected) >= 3:
             break
-        include = Confirm.ask(
-            f"Include [cyan]{name}[/] (local :{port})?",
+        include = confirm(
+            f"Include {name} (local :{port})?",
             default=True,
-            console=console,
         )
         if include:
             selected.append((name, port))
@@ -337,7 +330,7 @@ def _do_list_menu() -> bool:
 
     options = []
     for name, port in mappings:
-        mark = " ★" if name == default else ""
+        mark = " *" if name == default else ""
         options.append(f"Start {name}{mark} (:{port})")
     options.extend(["Set default", "Back"])
 
@@ -348,11 +341,10 @@ def _do_list_menu() -> bool:
         picked = _pick_saved_tunnel_for_default()
         if picked:
             set_default_service(picked)
-            print_success(f"Default set to [cyan]{picked}[/]")
+            print_success(f"Default set to {picked}")
             _pause()
         return False
 
-    # Start N
     if not _require_auth():
         _pause()
         return False
@@ -365,7 +357,7 @@ def _do_list_menu() -> bool:
     except UserDisconnected:
         disconnected = True
     except KeyboardInterrupt:
-        print_info("\n[dim]Disconnected.[/]")
+        print_info("\nDisconnected.")
         disconnected = True
     except Exception as exc:  # noqa: BLE001
         print_error(f"Unexpected error: {exc}")
@@ -390,7 +382,7 @@ def _do_status() -> None:
         rows.append(
             (
                 "Port range",
-                f"{tunnel['port_start']}–{tunnel['port_end']} ({tunnel_config_path().name})",
+                f"{tunnel['port_start']}-{tunnel['port_end']} ({tunnel_config_path().name})",
             )
         )
     else:
@@ -412,11 +404,11 @@ def _do_logout() -> None:
 def _collect_single_expose() -> tuple[str, int] | None:
     """Prompt for one local port (label defaults to default)."""
     default_port = _detect_port()
-    name = Prompt.ask("Service label", default="default", console=console).strip().lower()
+    name = prompt_text("Service label", default="default").strip().lower()
     if not name:
         print_error("Service name is required")
         return None
-    port = IntPrompt.ask("Local port", default=default_port, console=console)
+    port = prompt_int("Local port", default=default_port)
     if port < 1 or port > 65535:
         print_error("Port must be between 1 and 65535")
         return None
@@ -442,7 +434,7 @@ def _do_expose_quick() -> bool:
                 prompt="Expose",
             )
         except KeyboardInterrupt:
-            print_info("\n[dim]Cancelled.[/]")
+            print_info("\nCancelled.")
             return False
 
         if action == "Cancel":
@@ -451,17 +443,16 @@ def _do_expose_quick() -> bool:
             try:
                 picked = _pick_saved_tunnel()
             except KeyboardInterrupt:
-                print_info("\n[dim]Cancelled.[/]")
+                print_info("\nCancelled.")
                 return False
             if not picked:
                 return False
             return _start_saved_tunnel(*picked)
-        # Configure new — fall through to prompts
 
     try:
         mapping = _collect_single_expose()
     except KeyboardInterrupt:
-        print_info("\n[dim]Cancelled.[/]")
+        print_info("\nCancelled.")
         return False
     if not mapping:
         return False
@@ -478,7 +469,7 @@ def _do_expose_wizard() -> bool:
     try:
         mappings = _collect_expose_wizard()
     except KeyboardInterrupt:
-        print_info("\n[dim]Cancelled.[/]")
+        print_info("\nCancelled.")
         return False
     if not mappings:
         print_error("No services selected")
@@ -504,7 +495,7 @@ def _do_expose_multi() -> bool:
                 prompt="Expose multiple",
             )
         except KeyboardInterrupt:
-            print_info("\n[dim]Cancelled.[/]")
+            print_info("\nCancelled.")
             return False
 
         if action == "Cancel":
@@ -515,13 +506,12 @@ def _do_expose_multi() -> bool:
             try:
                 selected = _pick_multiple_saved()
             except KeyboardInterrupt:
-                print_info("\n[dim]Cancelled.[/]")
+                print_info("\nCancelled.")
                 return False
             if not selected:
                 print_error("No services selected")
                 return False
             return _start_saved_mappings(selected)
-        # Configure new — fall through
 
     return _do_expose_wizard()
 
@@ -537,7 +527,7 @@ def _run_expose_from_menu(*, multi: bool) -> None:
     except UserDisconnected:
         disconnected = True
     except KeyboardInterrupt:
-        print_info("\n[dim]Disconnected.[/]")
+        print_info("\nDisconnected.")
         disconnected = True
     except Exception as exc:  # noqa: BLE001 — return to menu
         print_error(f"Unexpected error: {exc}")
@@ -615,7 +605,7 @@ def main(ctx: typer.Context) -> None:
         if is_interactive():
             _run_menu()
         else:
-            console.print(ctx.get_help())
+            print(ctx.get_help())
             raise typer.Exit(0)
 
 
@@ -653,7 +643,6 @@ def expose(
             raise typer.Exit(1)
         return
 
-    # Interactive bare `jtunnel expose` → quick single-service prompts
     if service is None and port is None and is_interactive():
         try:
             ok = _do_expose_quick()
