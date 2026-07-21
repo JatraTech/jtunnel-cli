@@ -1,6 +1,16 @@
 # JT Tunnel CLI
 
-Local developer CLI for exposing services through JT Tunnel. Install the `jtunnel` command from this package.
+Local developer CLI for exposing services through JT Tunnel.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JatraTech/jtunnel/main/install.sh | bash
+```
+
+This downloads the latest release binary for your OS/arch into `/usr/local/bin/jtunnel`.
+
+Windows: download `jtunnel-windows-amd64.exe` from [Releases](https://github.com/JatraTech/jtunnel/releases) and put it on your PATH.
 
 ## Quick start
 
@@ -72,16 +82,18 @@ Last exposed service is remembered as the **default** in `preferences.json`.
 
 Build a standalone binary with PyInstaller (no Python required on the target machine). Build on the same OS you want to run on — Linux binary on Ubuntu/WSL, `.exe` on Windows.
 
+Artifacts are named for GitHub Releases (e.g. `jtunnel-linux-amd64`, `jtunnel-windows-amd64.exe`).
+
 ### Ubuntu / WSL
 
 ```bash
 ./scripts/build-linux.sh
-sudo install -m 755 dist/jtunnel /usr/local/bin/jtunnel
+sudo install -m 755 dist/jtunnel-linux-amd64 /usr/local/bin/jtunnel
 ```
 
 ### Windows
 
 ```powershell
 .\scripts\build-windows.ps1
-# then put dist\jtunnel.exe on PATH, or run it directly
+# then put dist\jtunnel-windows-amd64.exe on PATH, or run it directly
 ```
