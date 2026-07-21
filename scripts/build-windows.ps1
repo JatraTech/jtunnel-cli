@@ -2,10 +2,16 @@ $ErrorActionPreference = "Stop"
 
 Set-Location (Join-Path $PSScriptRoot "..")
 
-$arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
-    "X64" { "amd64" }
-    "Arm64" { "arm64" }
-    default { $_.ToString().ToLowerInvariant() }
+$rawArch = if ($env:PROCESSOR_ARCHITEW6432) {
+    $env:PROCESSOR_ARCHITEW6432
+} else {
+    $env:PROCESSOR_ARCHITECTURE
+}
+
+$arch = switch ($rawArch.ToUpperInvariant()) {
+    "AMD64" { "amd64" }
+    "ARM64" { "arm64" }
+    default { $rawArch.ToLowerInvariant() }
 }
 
 $artifact = "jtunnel-windows-${arch}.exe"

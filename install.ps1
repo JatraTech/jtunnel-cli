@@ -5,11 +5,18 @@ $Binary = "jtunnel"
 $InstallDir = Join-Path $env:LOCALAPPDATA "jtunnel"
 $InstallPath = Join-Path $InstallDir "$Binary.exe"
 
-$arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
-    "X64" { "amd64" }
-    "Arm64" { "arm64" }
+# Prefer native OS arch (handles 32-bit PowerShell on 64-bit Windows).
+$rawArch = if ($env:PROCESSOR_ARCHITEW6432) {
+    $env:PROCESSOR_ARCHITEW6432
+} else {
+    $env:PROCESSOR_ARCHITECTURE
+}
+
+$arch = switch ($rawArch.ToUpperInvariant()) {
+    "AMD64" { "amd64" }
+    "ARM64" { "arm64" }
     default {
-        Write-Error "Unsupported architecture: $_"
+        Write-Error "Unsupported architecture: $rawArch"
         exit 1
     }
 }
