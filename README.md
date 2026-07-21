@@ -4,13 +4,39 @@ Expose local services through JT Tunnel. Run `jtunnel` for an interactive menu (
 
 ## Install
 
+**Linux / macOS**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/install.sh | bash
 ```
 
-Installs the latest release binary to `/usr/local/bin/jtunnel`.
+Installs to `/usr/local/bin/jtunnel`.
 
-Windows: download `jtunnel-windows-amd64.exe` from [Releases](https://github.com/JatraTech/jtunnel/releases) and put it on your `PATH`.
+**Windows** (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/install.ps1 | iex
+```
+
+Installs to `%LOCALAPPDATA%\jtunnel\jtunnel.exe` and adds that folder to your user `PATH`.
+
+## Uninstall
+
+**Linux / macOS**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/uninstall.sh | bash
+```
+
+Removes `/usr/local/bin/jtunnel` and `~/.config/jtunnel`.
+
+**Windows** (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/uninstall.ps1 | iex
+```
+
+Removes `%LOCALAPPDATA%\jtunnel` and `%USERPROFILE%\.config\jtunnel`.
 
 ## Quick start
 
