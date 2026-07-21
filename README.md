@@ -5,7 +5,7 @@ Expose local services through JT Tunnel. Run `jtunnel` for an interactive menu (
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JatraTech/jtunnel/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/install.sh | bash
 ```
 
 Installs the latest release binary to `/usr/local/bin/jtunnel`.
@@ -104,5 +104,3 @@ sudo install -m 755 dist/jtunnel-linux-amd64 /usr/local/bin/jtunnel
 .\scripts\build-windows.ps1
 # put dist\jtunnel-windows-amd64.exe on PATH
 ```
-
-Release asset names: `jtunnel-linux-amd64`, `jtunnel-linux-arm64`, `jtunnel-macos-amd64`, `jtunnel-macos-arm64`, `jtunnel-windows-amd64.exe`.

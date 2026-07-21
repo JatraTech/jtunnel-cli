@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="JatraTech/jtunnel"
+REPO="JatraTech/jtunnel-cli"
 BINARY="jtunnel"
 
 OS="$(uname -s)"
