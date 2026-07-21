@@ -3,11 +3,7 @@ $ErrorActionPreference = "Stop"
 $Binary = "jtunnel"
 $InstallDir = Join-Path $env:LOCALAPPDATA "jtunnel"
 $InstallPath = Join-Path $InstallDir "$Binary.exe"
-$ConfigDir = if ($env:JTUNNEL_CONFIG_DIR) {
-    $env:JTUNNEL_CONFIG_DIR
-} else {
-    Join-Path $env:USERPROFILE ".config\jtunnel"
-}
+$ConfigDir = Join-Path $env:USERPROFILE ".config\jtunnel"
 
 if (Test-Path $InstallPath) {
     Write-Host "Removing $InstallPath..."

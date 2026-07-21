@@ -3,7 +3,7 @@ set -euo pipefail
 
 BINARY="jtunnel"
 INSTALL_PATH="/usr/local/bin/${BINARY}"
-CONFIG_DIR="${JTUNNEL_CONFIG_DIR:-${HOME}/.config/jtunnel}"
+CONFIG_DIR="${HOME}/.config/jtunnel"
 
 if [[ -e "$INSTALL_PATH" ]] || command -v "$BINARY" >/dev/null 2>&1; then
   if [[ -e "$INSTALL_PATH" ]]; then

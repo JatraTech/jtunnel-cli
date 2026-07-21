@@ -97,20 +97,14 @@ Local port when `-p` is omitted:
 
 ## Configuration
 
-Copy `.env.example` to `.env` in the directory where you run `jtunnel`, then edit as needed:
+Endpoints are hardcoded in the CLI (`jtunnel/config.py`):
 
-```bash
-cp .env.example .env
-```
-
-Values can also be set as real environment variables (those take precedence over `.env`).
-
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `JTUNNEL_API_BASE` | yes | Django API base URL |
-| `JTUNNEL_HOST` | yes | Go control WebSocket URL |
-| `JTUNNEL_PUBLIC_HOST` | yes* | Public tunnel hostname (*fallback if not in token/`tunnel.json`) |
-| `JTUNNEL_CONFIG_DIR` | no | Local config directory (`~/.config/jtunnel`) |
+| Setting | Value |
+|---------|-------|
+| API base | `https://admin.new901.io` |
+| Tunnel host | `wss://jtunnel.new901.io` |
+| Public host | `jtunnel.new901.io` |
+| Config dir | `~/.config/jtunnel` |
 
 After login, port range and host also come from `tunnel.json` or claims in the device token.
 

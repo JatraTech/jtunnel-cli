@@ -3,44 +3,28 @@
 import base64
 import binascii
 import json
-import os
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-
-# Load .env from the current working directory (does not override real env vars).
-load_dotenv()
-
-API_BASE = os.getenv("JTUNNEL_API_BASE")
-TUNNEL_HOST = os.getenv("JTUNNEL_HOST")
-PUBLIC_HOST = os.getenv("JTUNNEL_PUBLIC_HOST")
-CONFIG_DIR = Path(
-    os.getenv("JTUNNEL_CONFIG_DIR") or "~/.config/jtunnel"
-).expanduser()
-
-
-def _require(name: str, value: str | None) -> str:
-    if value and value.strip():
-        return value.strip()
-    raise RuntimeError(
-        f"Missing {name}. Copy .env.example to .env or set the environment variable."
-    )
+API_BASE = "https://admin.new901.io"
+TUNNEL_HOST = "wss://jtunnel.new901.io"
+PUBLIC_HOST = "jtunnel.new901.io"
+CONFIG_DIR = Path("~/.config/jtunnel").expanduser()
 
 
 def api_base() -> str:
-    return _require("JTUNNEL_API_BASE", API_BASE).rstrip("/")
+    return API_BASE.rstrip("/")
 
 
 def tunnel_host() -> str:
-    return _require("JTUNNEL_HOST", TUNNEL_HOST).rstrip("/")
+    return TUNNEL_HOST.rstrip("/")
 
 
 def public_host() -> str:
     tunnel = load_tunnel_config()
     if tunnel and tunnel.get("host"):
         return str(tunnel["host"]).strip().lower().rstrip(".")
-    return _require("JTUNNEL_PUBLIC_HOST", PUBLIC_HOST).strip().lower().rstrip(".")
+    return PUBLIC_HOST.strip().lower().rstrip(".")
 
 
 def decode_token_claims(token: str | None) -> dict[str, Any] | None:
