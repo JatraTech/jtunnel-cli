@@ -26,7 +26,7 @@ def start_device_flow() -> dict:
 
 def poll_device_token(
     device_code: str,
-    interval: int = 5,
+    interval: int = 2,
     timeout: int = 600,
     *,
     on_wait: Callable[[], None] | None = None,
@@ -118,7 +118,7 @@ def login(
     open_browser(data["verification_uri"])
     result = poll_device_token(
         data["device_code"],
-        interval=data.get("interval", 5),
+        interval=data.get("interval", 2),
         on_wait=on_wait,
     )
     tunnel = result.get("tunnel")

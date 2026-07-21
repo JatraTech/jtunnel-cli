@@ -177,7 +177,7 @@ def _do_login() -> bool:
     try:
         result = poll_device_token(
             data["device_code"],
-            interval=data.get("interval", 5),
+            interval=data.get("interval", 2),
         )
     except KeyboardInterrupt:
         print_error("Login cancelled.")
@@ -560,6 +560,9 @@ def _run_menu() -> None:
         except KeyboardInterrupt:
             clear_screen()
             return
+        except SystemExit:
+            clear_screen()
+            raise
 
         if choice == "Expose":
             if not logged_in:

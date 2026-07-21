@@ -137,17 +137,26 @@ def print_info(message: str) -> None:
     print(message)
 
 
+def _readline(prompt: str = "") -> str:
+    """Read a line; treat EOF (Ctrl+Z / closed stdin) as a clean exit."""
+    try:
+        return input(prompt)
+    except EOFError:
+        print()
+        raise SystemExit(0) from None
+
+
 def pause(message: str = "Press Enter to continue...") -> None:
     if is_interactive():
         try:
-            input(_c(message, _DIM, _WHITE))
-        except EOFError:
+            _readline(_c(message, _DIM, _WHITE))
+        except SystemExit:
             pass
 
 
 def prompt_text(prompt: str, *, default: str | None = None) -> str:
     suffix = f" [{default}]" if default is not None else ""
-    raw = input(f"{prompt}{suffix}: ").strip()
+    raw = _readline(f"{prompt}{suffix}: ").strip()
     if not raw and default is not None:
         return default
     return raw
@@ -156,7 +165,7 @@ def prompt_text(prompt: str, *, default: str | None = None) -> str:
 def prompt_int(prompt: str, *, default: int | None = None) -> int:
     while True:
         suffix = f" [{default}]" if default is not None else ""
-        raw = input(f"{prompt}{suffix}: ").strip()
+        raw = _readline(f"{prompt}{suffix}: ").strip()
         if not raw and default is not None:
             return default
         try:
@@ -168,7 +177,7 @@ def prompt_int(prompt: str, *, default: int | None = None) -> int:
 def confirm(prompt: str, *, default: bool = False) -> bool:
     hint = "Y/n" if default else "y/N"
     while True:
-        raw = input(f"{prompt} ({hint}): ").strip().lower()
+        raw = _readline(f"{prompt} ({hint}): ").strip().lower()
         if not raw:
             return default
         if raw in ("y", "yes"):
@@ -249,7 +258,7 @@ def menu_choice(options: list[str], *, prompt: str = "Choose") -> str:
         print(f"{NEST}{num} {option}")
     print()
     while True:
-        raw = input(f"{NEST}{prompt} (1-{len(options)}): ").strip()
+        raw = _readline(f"{NEST}{prompt} (1-{len(options)}): ").strip()
         if raw.isdigit():
             idx = int(raw)
             if 1 <= idx <= len(options):
