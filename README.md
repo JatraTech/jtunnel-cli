@@ -117,6 +117,10 @@ Local files under the config dir:
 | `tunnels.json` | Saved tunnel mappings (name → public/local ports) |
 | `preferences.json` | Default service for quick Expose |
 
+## Performance & limits
+
+See [JT_TUNNEL.md](../JT_TUNNEL.md#performance--limits) for request timeout (5 min), WebSocket frame size (32MB), concurrency, and latency expectations.
+
 ## Binary builds
 
 Build a standalone binary with PyInstaller on the same OS you target. Artifacts match GitHub Release names.

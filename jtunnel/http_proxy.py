@@ -7,7 +7,7 @@ import socket
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
-from .protocol import MAX_CONCURRENT_REQUESTS, REQUEST_ID_LEN
+from .protocol import MAX_CONCURRENT_REQUESTS, REQUEST_ID_LEN, REQUEST_TIMEOUT_SECONDS
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS)
 
@@ -32,7 +32,7 @@ class HTTPProxy:
         service = host.split(".")[0] if host else "default"
         port = self._local_port(service)
         prepared = self._prepare_request(raw_request, port)
-        with socket.create_connection(("127.0.0.1", port), timeout=60) as sock:
+        with socket.create_connection(("127.0.0.1", port), timeout=REQUEST_TIMEOUT_SECONDS) as sock:
             sock.sendall(prepared)
             return self._read_response(sock)
 

@@ -12,6 +12,7 @@ from .config import (
     api_base,
     clear_active_tunnels,
     clear_device_token,
+    delete_active_tunnel,
     device_token_path,
     get_default_service,
     get_default_tunnel_entry,
@@ -290,6 +291,32 @@ def _pick_saved_tunnel_for_default() -> str | None:
     return mappings[options.index(choice)][0]
 
 
+def _pick_saved_tunnel_for_delete() -> str | None:
+    mappings = _saved_tunnel_mappings()
+    if not mappings:
+        return None
+    default = get_default_service()
+    options = [
+        f"{name}{' *' if name == default else ''} (local :{port})"
+        for name, port in mappings
+    ]
+    options.append("Back")
+    choice = menu_choice(options, prompt="Delete which tunnel")
+    if choice == "Back":
+        return None
+    return mappings[options.index(choice)][0]
+
+
+def _do_delete_tunnel(name: str) -> bool:
+    if not confirm(f"Delete saved tunnel {name}?", default=False):
+        return False
+    if delete_active_tunnel(name):
+        print_success(f"Removed saved tunnel {name}")
+        return True
+    print_error(f"No saved tunnel named {name!r}")
+    return False
+
+
 def _pick_multiple_saved() -> list[tuple[str, int]] | None:
     """Ask Include? for each saved tunnel until 3 chosen or user stops."""
     mappings = _saved_tunnel_mappings()
@@ -332,7 +359,7 @@ def _do_list_menu() -> bool:
     for name, port in mappings:
         mark = " *" if name == default else ""
         options.append(f"Start {name}{mark} (:{port})")
-    options.extend(["Set default", "Back"])
+    options.extend(["Set default", "Delete", "Back"])
 
     choice = menu_choice(options, prompt="Action")
     if choice == "Back":
@@ -342,6 +369,12 @@ def _do_list_menu() -> bool:
         if picked:
             set_default_service(picked)
             print_success(f"Default set to {picked}")
+            _pause()
+        return False
+    if choice == "Delete":
+        picked = _pick_saved_tunnel_for_delete()
+        if picked:
+            _do_delete_tunnel(picked)
             _pause()
         return False
 
@@ -669,6 +702,32 @@ def expose(
 def list_cmd() -> None:
     """List tunnels saved from recent expose sessions."""
     _do_list()
+
+
+@app.command("delete")
+def delete_cmd(
+    service: str = typer.Argument(
+        None,
+        help="Saved service label to remove",
+    ),
+) -> None:
+    """Remove a saved tunnel from local state."""
+    if service is None:
+        if is_interactive():
+            picked = _pick_saved_tunnel_for_delete()
+            if not picked:
+                raise typer.Exit(0)
+            if not _do_delete_tunnel(picked):
+                raise typer.Exit(1)
+            return
+        print_error("Service name required. Usage: jtunnel delete <service>")
+        raise typer.Exit(1)
+
+    name = service.strip().lower()
+    if not delete_active_tunnel(name):
+        print_error(f"No saved tunnel named {name!r}")
+        raise typer.Exit(1)
+    print_success(f"Removed saved tunnel {name}")
 
 
 @app.command()

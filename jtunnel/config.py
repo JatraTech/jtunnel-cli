@@ -150,6 +150,23 @@ def clear_active_tunnels() -> None:
     clear_default_service()
 
 
+def delete_active_tunnel(name: str) -> bool:
+    """Remove a saved tunnel by name. Returns True if it existed."""
+    normalized = name.strip().lower()
+    tunnels = load_active_tunnels()
+    if normalized not in tunnels:
+        return False
+    tunnels.pop(normalized)
+    path = tunnels_state_path()
+    if tunnels:
+        path.write_text(json.dumps(tunnels, indent=2) + "\n")
+    elif path.exists():
+        path.unlink()
+    if get_default_service() == normalized:
+        clear_default_service()
+    return True
+
+
 def load_preferences() -> dict[str, Any]:
     path = preferences_path()
     if not path.exists():

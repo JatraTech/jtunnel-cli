@@ -19,7 +19,13 @@ from .config import (
 )
 from .errors import TunnelError, UserDisconnected
 from .http_proxy import HTTPProxy
-from .protocol import HEARTBEAT_INTERVAL_SECONDS, MAX_CONCURRENT_REQUESTS, REQUEST_ID_LEN, is_relay_frame
+from .protocol import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    MAX_CONCURRENT_REQUESTS,
+    MAX_WS_MESSAGE_SIZE,
+    REQUEST_ID_LEN,
+    is_relay_frame,
+)
 from .ui import print_info, print_tunnels_table
 from .ws_relay import WSRelay
 
@@ -83,6 +89,7 @@ class TunnelClient:
                 uri,
                 ping_interval=None,
                 ping_timeout=None,
+                max_size=MAX_WS_MESSAGE_SIZE,
             )
         except (OSError, ws_exc.WebSocketException) as exc:
             raise TunnelError(f"Cannot reach JT Tunnel ({tunnel_host()}): {exc}") from exc
