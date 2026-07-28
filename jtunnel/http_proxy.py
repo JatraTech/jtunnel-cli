@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 from .protocol import MAX_CONCURRENT_REQUESTS, REQUEST_ID_LEN, REQUEST_TIMEOUT_SECONDS
+from .windows import is_connection_refused, local_port_refused_hint
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS)
 
@@ -32,9 +33,16 @@ class HTTPProxy:
         service = host.split(".")[0] if host else "default"
         port = self._local_port(service)
         prepared = self._prepare_request(raw_request, port)
-        with socket.create_connection(("127.0.0.1", port), timeout=REQUEST_TIMEOUT_SECONDS) as sock:
-            sock.sendall(prepared)
-            return self._read_response(sock)
+        try:
+            with socket.create_connection(
+                ("127.0.0.1", port), timeout=REQUEST_TIMEOUT_SECONDS
+            ) as sock:
+                sock.sendall(prepared)
+                return self._read_response(sock)
+        except OSError as exc:
+            if is_connection_refused(exc):
+                return self._error_response(local_port_refused_hint(port))
+            raise
 
     def _local_port(self, service: str) -> int:
         if service in self.services:

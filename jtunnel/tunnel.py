@@ -27,6 +27,7 @@ from .protocol import (
     is_relay_frame,
 )
 from .ui import print_info, print_tunnels_table
+from .windows import is_connection_refused, tunnel_server_refused_hint
 from .ws_relay import WSRelay
 
 
@@ -74,6 +75,11 @@ class TunnelClient:
             except (OSError, ws_exc.WebSocketException) as exc:
                 if self._stop.is_set():
                     return
+                cause = exc.__cause__ or exc.__context__
+                if is_connection_refused(exc) or (
+                    cause is not None and is_connection_refused(cause)
+                ):
+                    raise TunnelError(tunnel_server_refused_hint(tunnel_host())) from exc
                 print(
                     f"Failed to connect to tunnel server: {exc}. "
                     f"Retrying in {backoff}s...",
@@ -92,6 +98,11 @@ class TunnelClient:
                 max_size=MAX_WS_MESSAGE_SIZE,
             )
         except (OSError, ws_exc.WebSocketException) as exc:
+            cause = exc.__cause__ or exc.__context__
+            if is_connection_refused(exc) or (
+                cause is not None and is_connection_refused(cause)
+            ):
+                raise TunnelError(tunnel_server_refused_hint(tunnel_host())) from exc
             raise TunnelError(f"Cannot reach JT Tunnel ({tunnel_host()}): {exc}") from exc
 
         self._relay = WSRelay(self.send, self.send_bytes)

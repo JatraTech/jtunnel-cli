@@ -22,6 +22,19 @@ irm https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/install.ps1 | i
 
 Installs to `%LOCALAPPDATA%\jtunnel\jtunnel.exe` and adds that folder to your user `PATH`.
 
+Install may prompt once for **Administrator (UAC)** approval to add a Windows Firewall **outbound** allow rule for `jtunnel.exe`. JT Tunnel is a client (it does not listen on a local port), so Windows will not show the usual public/private network popup — the install script adds the rule explicitly.
+
+If you decline UAC, install still succeeds. You can add the rule later (PowerShell as Administrator):
+
+```powershell
+irm https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/scripts/windows-firewall.ps1 -OutFile $env:TEMP\jtunnel-fw.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\jtunnel-fw.ps1 -Action Add
+```
+
+Or diagnose with `jtunnel doctor`.
+
+> Note: Loopback (`127.0.0.1`) is not blocked by Windows Firewall. If the public URL returns connection refused after the tunnel is connected, start your local app and pass the correct port (`jtunnel expose -p 5173`).
+
 ## Uninstall
 
 **Linux / macOS**
@@ -39,6 +52,8 @@ irm https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/uninstall.ps1 |
 ```
 
 Removes `%LOCALAPPDATA%\jtunnel` and `%USERPROFILE%\.config\jtunnel`.
+
+Uninstall also tries to remove the `JT Tunnel` firewall rule (may prompt for UAC).
 
 ## Quick start
 
@@ -80,8 +95,24 @@ jtunnel expose api -p 8000
 jtunnel expose --wizard             # multi-service (TTY: menu; non-TTY: prompts)
 jtunnel list
 jtunnel status
+jtunnel doctor                      # connectivity + Windows Firewall checks
+jtunnel doctor -p 5173              # also verify local app port
 jtunnel logout
 ```
+
+### Troubleshooting (`jtunnel doctor`)
+
+```bash
+jtunnel doctor
+jtunnel doctor -p 5173
+```
+
+Checks:
+
+- Signed-in state and allocated port block
+- Reachability of `admin.new901.io:443` and `jtunnel.new901.io:443`
+- Optional local app port (`-p`)
+- On Windows: whether the `JT Tunnel` outbound firewall rule exists
 
 Interactive TTY shortcuts:
 

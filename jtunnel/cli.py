@@ -27,6 +27,7 @@ from .config import (
     tunnel_config_path,
     tunnel_host,
 )
+from .doctor import print_report, run_checks
 from .errors import TunnelError, UserDisconnected
 from .slots import MaxTunnelServicesError, resolve_services
 from .tunnel import run as run_tunnel
@@ -734,6 +735,21 @@ def delete_cmd(
 def status() -> None:
     """Show current CLI configuration and token status."""
     _do_status()
+
+
+@app.command()
+def doctor(
+    port: int | None = typer.Option(
+        None,
+        "--port",
+        "-p",
+        help="Also check that a local app is listening on this port",
+    ),
+) -> None:
+    """Diagnose connectivity, login, and Windows Firewall setup."""
+    results = run_checks(local_port=port)
+    if not print_report(results):
+        raise typer.Exit(1)
 
 
 @app.command()
