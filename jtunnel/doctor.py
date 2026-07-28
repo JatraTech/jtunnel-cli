@@ -16,6 +16,7 @@ from .config import (
 )
 from .ui import print_error, print_info, print_success, status_panel
 from .windows import (
+    add_firewall_rule,
     check_firewall_rule,
     current_exe_path,
     firewall_fix_command,
@@ -142,6 +143,28 @@ def run_checks(
     return results
 
 
+def run_doctor(
+    *,
+    local_port: int | None = None,
+    fix_firewall: bool = False,
+) -> bool:
+    """Run doctor checks; optionally fix firewall first. Returns True if all critical checks pass."""
+    if fix_firewall:
+        if not is_windows():
+            print_error("--fix-firewall is only supported on Windows.")
+            return False
+        print_info("Requesting Administrator approval to add the Windows Firewall rule...")
+        ok, message = add_firewall_rule(current_exe_path())
+        if ok:
+            print_success(message)
+        else:
+            print_error(message)
+            return False
+
+    results = run_checks(local_port=local_port)
+    return print_report(results)
+
+
 def print_report(results: list[CheckResult]) -> bool:
     """Print results. Returns True if all critical checks passed."""
     rows: list[tuple[str, str]] = []
@@ -163,9 +186,11 @@ def print_report(results: list[CheckResult]) -> bool:
         fw = next((r for r in results if r.name == "Windows Firewall"), None)
         if fw is not None and fw.ok is False:
             print_info("")
-            print_info("Add the firewall rule (PowerShell as Administrator):")
-            print_info(f"  {firewall_fix_command()}")
+            print_info(f"Add the firewall rule: {firewall_fix_command()}")
             print_info("Also check Windows Security → Protection history for blocked apps.")
+        elif fw is not None and fw.ok is None:
+            print_info("")
+            print_info("Firewall status could not be confirmed. Connectivity checks above are authoritative.")
 
     if all_ok:
         print_success("All critical checks passed.")

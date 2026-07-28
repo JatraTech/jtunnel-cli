@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import Literal
+
+FirewallStatus = Literal["OK", "MISSING", "MISMATCH", "ERROR"]
 
 FIREWALL_RULE_NAME = "JT Tunnel"
 FIREWALL_SCRIPT_URL = (
@@ -15,6 +20,17 @@ FIREWALL_SCRIPT_URL = (
 
 def is_windows() -> bool:
     return sys.platform == "win32"
+
+
+def powershell_exe() -> str:
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    return str(
+        Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    )
+
+
+def _ps_escape_single_quoted(value: str) -> str:
+    return value.replace("'", "''")
 
 
 def is_connection_refused(exc: BaseException) -> bool:
@@ -43,12 +59,8 @@ def current_exe_path() -> Path:
 
 
 def firewall_fix_command(program_path: Path | None = None) -> str:
-    path = program_path or current_exe_path()
-    return (
-        f'irm {FIREWALL_SCRIPT_URL} -OutFile $env:TEMP\\jtunnel-fw.ps1; '
-        f'powershell -ExecutionPolicy Bypass -File $env:TEMP\\jtunnel-fw.ps1 '
-        f'-Action Add -ProgramPath "{path}"'
-    )
+    _ = program_path or current_exe_path()
+    return "jtunnel doctor --fix-firewall"
 
 
 def tunnel_server_refused_hint(tunnel_uri: str) -> str:
@@ -60,10 +72,7 @@ def tunnel_server_refused_hint(tunnel_uri: str) -> str:
         "Run: jtunnel doctor",
     ]
     if is_windows():
-        lines.append(
-            "Or add a firewall rule (PowerShell as Administrator):\n"
-            f"  {firewall_fix_command()}"
-        )
+        lines.append(f"Or add a firewall rule: {firewall_fix_command()}")
     return "\n".join(lines)
 
 
@@ -73,6 +82,120 @@ def local_port_refused_hint(port: int) -> str:
         "Start your local app first, or check the port with: "
         f"jtunnel expose -p {port}"
     )
+
+
+def _powershell_firewall_status(path: Path) -> FirewallStatus:
+    target = _ps_escape_single_quoted(str(path))
+    rule_name = _ps_escape_single_quoted(FIREWALL_RULE_NAME)
+    ps = (
+        f"Import-Module NetSecurity -ErrorAction Stop; "
+        f"$r = Get-NetFirewallRule -DisplayName '{rule_name}' -ErrorAction SilentlyContinue; "
+        f"if (-not $r) {{ Write-Output 'MISSING'; exit 0 }}; "
+        f"$apps = $r | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue; "
+        f"$target = [System.IO.Path]::GetFullPath('{target}'); "
+        f"foreach ($a in $apps) {{ "
+        f"  if ($a.Program -and ([System.IO.Path]::GetFullPath($a.Program) -eq $target)) {{ "
+        f"    Write-Output 'OK'; exit 0 "
+        f"  }} "
+        f"}}; "
+        f"Write-Output 'MISMATCH'"
+    )
+    try:
+        result = subprocess.run(
+            [
+                powershell_exe(),
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                ps,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "ERROR"
+
+    out = (result.stdout or "").strip().splitlines()
+    status = out[-1].strip() if out else ""
+    if status in ("OK", "MISSING", "MISMATCH"):
+        return status  # type: ignore[return-value]
+    return "ERROR"
+
+
+def _netsh_firewall_status(path: Path) -> FirewallStatus:
+    try:
+        result = subprocess.run(
+            [
+                "netsh",
+                "advfirewall",
+                "firewall",
+                "show",
+                "rule",
+                f"name={FIREWALL_RULE_NAME}",
+                "verbose",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "ERROR"
+
+    output = result.stdout or ""
+    if "No rules match the specified criteria" in output:
+        return "MISSING"
+
+    target = str(path.resolve()).lower()
+    program_lines = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip().lower().startswith("program=")
+    ]
+    if not program_lines:
+        return "ERROR"
+
+    for line in program_lines:
+        program = line.split("=", 1)[1].strip().strip('"')
+        if program and Path(program).resolve() == path.resolve():
+            return "OK"
+
+    return "MISMATCH"
+
+
+def firewall_rule_status(
+    program_path: Path | None = None,
+    *,
+    run_powershell: bool = True,
+    run_netsh: bool = True,
+) -> FirewallStatus:
+    """Return firewall rule status for the given program path."""
+    if not is_windows():
+        return "ERROR"
+
+    path = (program_path or current_exe_path()).resolve()
+    ps_status: FirewallStatus | None = None
+    if run_powershell:
+        ps_status = _powershell_firewall_status(path)
+
+    if ps_status in ("OK", "MISMATCH"):
+        return ps_status
+    if ps_status == "MISSING":
+        if run_netsh:
+            netsh_status = _netsh_firewall_status(path)
+            if netsh_status != "ERROR":
+                return netsh_status
+        return "MISSING"
+
+    if run_netsh:
+        netsh_status = _netsh_firewall_status(path)
+        if netsh_status != "ERROR":
+            return netsh_status
+
+    return "ERROR"
 
 
 def check_firewall_rule(
@@ -87,24 +210,53 @@ def check_firewall_rule(
         return None, "Skipped"
 
     path = (program_path or current_exe_path()).resolve()
-    # PowerShell: find rule by display name, then check program path.
+    status = firewall_rule_status(path, run_powershell=run_powershell)
+
+    if status == "OK":
+        return True, f"Rule '{FIREWALL_RULE_NAME}' allows {path}"
+    if status == "MISSING":
+        return False, f"Rule '{FIREWALL_RULE_NAME}' not found"
+    if status == "MISMATCH":
+        return False, f"Rule '{FIREWALL_RULE_NAME}' exists but points to a different program"
+    return None, "Could not query firewall rule (try running as a normal user in PowerShell)"
+
+
+def _download_firewall_script(dest: Path) -> None:
+    import urllib.request
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(FIREWALL_SCRIPT_URL, dest)
+
+
+def add_firewall_rule(program_path: Path | None = None) -> tuple[bool, str]:
+    """Add the outbound firewall rule, prompting for UAC if needed."""
+    if not is_windows():
+        return False, "Not supported on this platform"
+
+    path = (program_path or current_exe_path()).resolve()
+    if not path.exists():
+        return False, f"Program not found: {path}"
+
+    fw_script = Path(tempfile.gettempdir()) / "jtunnel-fw.ps1"
+    try:
+        _download_firewall_script(fw_script)
+    except OSError as exc:
+        return False, f"Could not download firewall script: {exc}"
+
+    ps_script = _ps_escape_single_quoted(str(fw_script))
+    ps_program = _ps_escape_single_quoted(str(path))
     ps = (
-        f"$r = Get-NetFirewallRule -DisplayName '{FIREWALL_RULE_NAME}' "
-        f"-ErrorAction SilentlyContinue; "
-        f"if (-not $r) {{ Write-Output 'MISSING'; exit 0 }}; "
-        f"$apps = $r | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue; "
-        f"$target = [System.IO.Path]::GetFullPath('{str(path).replace(chr(39), chr(39)+chr(39))}'); "
-        f"foreach ($a in $apps) {{ "
-        f"  if ($a.Program -and ([System.IO.Path]::GetFullPath($a.Program) -eq $target)) {{ "
-        f"    Write-Output 'OK'; exit 0 "
-        f"  }} "
-        f"}}; "
-        f"Write-Output 'MISMATCH'"
+        f"$fw = '{ps_script}'; "
+        f"$exe = '{ps_program}'; "
+        f"$proc = Start-Process -FilePath '{_ps_escape_single_quoted(powershell_exe())}' "
+        f"-Verb RunAs -Wait -PassThru -ArgumentList @("
+        f"'-NoProfile','-ExecutionPolicy','Bypass','-File',$fw,'-Action','Add','-ProgramPath',$exe"
+        f"); exit $proc.ExitCode"
     )
     try:
         result = subprocess.run(
             [
-                "powershell",
+                powershell_exe(),
                 "-NoProfile",
                 "-ExecutionPolicy",
                 "Bypass",
@@ -113,21 +265,18 @@ def check_firewall_rule(
             ],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=120,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return None, f"Could not query firewall: {exc}"
+        return False, f"Could not add firewall rule: {exc}"
+    finally:
+        if fw_script.exists():
+            fw_script.unlink(missing_ok=True)
 
-    out = (result.stdout or "").strip().splitlines()
-    status = out[-1].strip() if out else ""
-    if status == "OK":
-        return True, f"Rule '{FIREWALL_RULE_NAME}' allows {path}"
-    if status == "MISSING":
-        return False, f"Rule '{FIREWALL_RULE_NAME}' not found"
-    if status == "MISMATCH":
-        return False, f"Rule '{FIREWALL_RULE_NAME}' exists but points to a different program"
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or "unknown error").strip()
-        return None, f"Could not query firewall: {err}"
-    return None, f"Unexpected firewall check result: {status or '(empty)'}"
+    if result.returncode == 0:
+        return True, f"Firewall rule added for {path}"
+
+    detail = (result.stderr or result.stdout or "UAC declined or script failed").strip()
+    detail = re.sub(r"\s+", " ", detail)
+    return False, f"Could not add firewall rule: {detail or 'unknown error'}"

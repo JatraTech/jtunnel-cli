@@ -27,9 +27,9 @@ function Add-JtunnelFirewallRule {
         $argList = @(
             "-NoProfile",
             "-ExecutionPolicy", "Bypass",
-            "-File", "`"$fwTmp`"",
+            "-File", $fwTmp,
             "-Action", "Add",
-            "-ProgramPath", "`"$ProgramPath`""
+            "-ProgramPath", $ProgramPath
         )
         $proc = Start-Process -FilePath "powershell" -Verb RunAs -Wait -PassThru -ArgumentList $argList
         return ($proc.ExitCode -eq 0)
@@ -87,10 +87,7 @@ if (-not $fwOk) {
     Write-Host ""
     Write-Host "Warning: Could not add the Windows Firewall rule (UAC declined or error)."
     Write-Host "JT Tunnel is installed, but outbound connections may be blocked."
-    Write-Host "Run PowerShell as Administrator and execute:"
-    Write-Host "  irm https://raw.githubusercontent.com/$Repo/main/scripts/windows-firewall.ps1 -OutFile `$env:TEMP\jtunnel-fw.ps1"
-    Write-Host "  powershell -ExecutionPolicy Bypass -File `$env:TEMP\jtunnel-fw.ps1 -Action Add -ProgramPath `"$InstallPath`""
-    Write-Host "Or run: jtunnel doctor"
+    Write-Host "Run: jtunnel doctor --fix-firewall"
 }
 
 Write-Host ""

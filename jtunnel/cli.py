@@ -27,7 +27,7 @@ from .config import (
     tunnel_config_path,
     tunnel_host,
 )
-from .doctor import print_report, run_checks
+from .doctor import run_doctor
 from .errors import TunnelError, UserDisconnected
 from .slots import MaxTunnelServicesError, resolve_services
 from .tunnel import run as run_tunnel
@@ -745,10 +745,14 @@ def doctor(
         "-p",
         help="Also check that a local app is listening on this port",
     ),
+    fix_firewall: bool = typer.Option(
+        False,
+        "--fix-firewall",
+        help="Add the Windows Firewall outbound rule (prompts for UAC)",
+    ),
 ) -> None:
     """Diagnose connectivity, login, and Windows Firewall setup."""
-    results = run_checks(local_port=port)
-    if not print_report(results):
+    if not run_doctor(local_port=port, fix_firewall=fix_firewall):
         raise typer.Exit(1)
 
 

@@ -28,9 +28,9 @@ function Remove-JtunnelFirewallRule {
         $argList = @(
             "-NoProfile",
             "-ExecutionPolicy", "Bypass",
-            "-File", "`"$fwTmp`"",
+            "-File", $fwTmp,
             "-Action", "Remove",
-            "-ProgramPath", "`"$ProgramPath`""
+            "-ProgramPath", $ProgramPath
         )
         $proc = Start-Process -FilePath "powershell" -Verb RunAs -Wait -PassThru -ArgumentList $argList
         return ($proc.ExitCode -eq 0)

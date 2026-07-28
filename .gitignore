@@ -40,3 +40,4 @@ env/
 *.manifest
 *.spec.bak
 dist/
+.gitignore

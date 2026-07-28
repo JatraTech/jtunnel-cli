@@ -24,14 +24,11 @@ Installs to `%LOCALAPPDATA%\jtunnel\jtunnel.exe` and adds that folder to your us
 
 Install may prompt once for **Administrator (UAC)** approval to add a Windows Firewall **outbound** allow rule for `jtunnel.exe`. JT Tunnel is a client (it does not listen on a local port), so Windows will not show the usual public/private network popup — the install script adds the rule explicitly.
 
-If you decline UAC, install still succeeds. You can add the rule later (PowerShell as Administrator):
+If you decline UAC, install still succeeds. Add the rule later with:
 
 ```powershell
-irm https://raw.githubusercontent.com/JatraTech/jtunnel-cli/main/scripts/windows-firewall.ps1 -OutFile $env:TEMP\jtunnel-fw.ps1
-powershell -ExecutionPolicy Bypass -File $env:TEMP\jtunnel-fw.ps1 -Action Add
+jtunnel doctor --fix-firewall
 ```
-
-Or diagnose with `jtunnel doctor`.
 
 > Note: Loopback (`127.0.0.1`) is not blocked by Windows Firewall. If the public URL returns connection refused after the tunnel is connected, start your local app and pass the correct port (`jtunnel expose -p 5173`).
 
@@ -97,6 +94,7 @@ jtunnel list
 jtunnel status
 jtunnel doctor                      # connectivity + Windows Firewall checks
 jtunnel doctor -p 5173              # also verify local app port
+jtunnel doctor --fix-firewall       # add firewall rule (UAC prompt, Windows only)
 jtunnel logout
 ```
 
@@ -105,6 +103,7 @@ jtunnel logout
 ```bash
 jtunnel doctor
 jtunnel doctor -p 5173
+jtunnel doctor --fix-firewall
 ```
 
 Checks:
@@ -112,7 +111,9 @@ Checks:
 - Signed-in state and allocated port block
 - Reachability of `admin.new901.io:443` and `jtunnel.new901.io:443`
 - Optional local app port (`-p`)
-- On Windows: whether the `JT Tunnel` outbound firewall rule exists
+- On Windows: whether the `JT Tunnel` outbound firewall rule exists (loads `NetSecurity` explicitly; falls back to `netsh` if needed)
+
+If the firewall rule is missing, run `jtunnel doctor --fix-firewall` (prompts for UAC once).
 
 Interactive TTY shortcuts:
 
