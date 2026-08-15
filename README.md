@@ -129,10 +129,10 @@ Local port when `-p` is omitted:
 
 ## Configuration
 
-Endpoints are hardcoded in the CLI (`jtunnel/config.py`):
+Built-in defaults (all overridable — see below):
 
-| Setting | Value |
-|---------|-------|
+| Setting | Default |
+|---------|---------|
 | API base | `https://admin.new901.io` |
 | Tunnel host | `wss://jtunnel.new901.io` |
 | Public host | `jtunnel.new901.io` |
@@ -169,7 +169,7 @@ Local files under the config dir:
 
 ## Performance & limits
 
-See [JT_TUNNEL.md](../JT_TUNNEL.md#performance--limits) for request timeout (5 min), WebSocket frame size (32MB), concurrency, and latency expectations.
+See [JT_TUNNEL.md](../JT_TUNNEL.md#performance--limits) for the v2 stream-frame protocol, request timeout (5 min), 64 KiB body chunks, concurrency (128), and latency expectations.
 
 Latency/throughput harness:
 
