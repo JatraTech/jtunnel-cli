@@ -3,12 +3,14 @@ import json
 import pytest
 
 from jtunnel.config import (
+    api_base,
     delete_active_tunnel,
     get_default_service,
     load_active_tunnels,
     public_url,
     save_active_tunnel,
     set_default_service,
+    tunnel_host,
 )
 
 
@@ -56,3 +58,28 @@ def test_delete_active_tunnel_clears_default(monkeypatch, tmp_path):
 def test_delete_active_tunnel_missing_returns_false(monkeypatch, tmp_path):
     monkeypatch.setattr("jtunnel.config.CONFIG_DIR", tmp_path)
     assert delete_active_tunnel("missing") is False
+
+
+def test_tunnel_host_prefers_tunnel_config(monkeypatch, tmp_path):
+    monkeypatch.setattr("jtunnel.config.CONFIG_DIR", tmp_path)
+    (tmp_path / "tunnel.json").write_text(
+        json.dumps({"host": "sg.jtunnel.new901.io", "port_start": 9001, "port_end": 9003})
+    )
+    assert tunnel_host() == "wss://sg.jtunnel.new901.io"
+
+
+def test_tunnel_host_env_override(monkeypatch, tmp_path):
+    monkeypatch.setattr("jtunnel.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("JTUNNEL_HOST", "ws://alt.example.com")
+    assert tunnel_host() == "ws://alt.example.com"
+
+
+def test_tunnel_host_default(monkeypatch, tmp_path):
+    monkeypatch.setattr("jtunnel.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setattr("jtunnel.config.TUNNEL_HOST", "wss://jtunnel.example.com")
+    assert tunnel_host() == "wss://jtunnel.example.com"
+
+
+def test_api_base_env_override(monkeypatch):
+    monkeypatch.setenv("JTUNNEL_API_BASE", "https://admin2.example.com")
+    assert api_base() == "https://admin2.example.com"

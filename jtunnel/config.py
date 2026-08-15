@@ -3,6 +3,7 @@
 import base64
 import binascii
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,18 +13,51 @@ PUBLIC_HOST = "jtunnel.new901.io"
 CONFIG_DIR = Path("~/.config/jtunnel").expanduser()
 
 
+def _bare_host(value: str) -> str:
+    host = value.strip().lower().rstrip(".")
+    for scheme in ("wss://", "ws://", "https://", "http://"):
+        if host.startswith(scheme):
+            host = host[len(scheme) :].strip().rstrip(".")
+            break
+    return host
+
+
+def _normalize_tunnel_host(value: str) -> str:
+    host = value.strip().lower().rstrip(".")
+    if host and not (host.startswith("ws://") or host.startswith("wss://")):
+        host = "wss://" + host
+    return host
+
+
 def api_base() -> str:
+    env = os.getenv("JTUNNEL_API_BASE")
+    if env:
+        return env.strip().rstrip("/")
     return API_BASE.rstrip("/")
 
 
 def tunnel_host() -> str:
+    tunnel = load_tunnel_config()
+    if tunnel and tunnel.get("host"):
+        return _normalize_tunnel_host(str(tunnel["host"]))
+    token = load_device_token()
+    claims = tunnel_config_from_token(token)
+    if claims and claims.get("host"):
+        return _normalize_tunnel_host(claims["host"])
+    env = os.getenv("JTUNNEL_HOST")
+    if env:
+        return _normalize_tunnel_host(env)
     return TUNNEL_HOST.rstrip("/")
 
 
 def public_host() -> str:
     tunnel = load_tunnel_config()
     if tunnel and tunnel.get("host"):
-        return str(tunnel["host"]).strip().lower().rstrip(".")
+        return _bare_host(str(tunnel["host"]))
+    token = load_device_token()
+    claims = tunnel_config_from_token(token)
+    if claims and claims.get("host"):
+        return _bare_host(claims["host"])
     return PUBLIC_HOST.strip().lower().rstrip(".")
 
 
@@ -49,7 +83,7 @@ def tunnel_config_from_token(token: str | None) -> dict[str, Any] | None:
         return None
     host = claims.get("tunnel_host")
     if not isinstance(host, str) or not host.strip():
-        host = public_host()
+        host = PUBLIC_HOST.strip().lower().rstrip(".")
     return {
         "host": host.strip().lower().rstrip("."),
         "port_start": port_start,

@@ -3,46 +3,52 @@
 from __future__ import annotations
 
 import http.client
-import socket
+import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from io import BytesIO
 
-from .protocol import MAX_CONCURRENT_REQUESTS, REQUEST_ID_LEN, REQUEST_TIMEOUT_SECONDS
+from .protocol import MAX_CONCURRENT_REQUESTS, REQUEST_TIMEOUT_SECONDS
 from .windows import is_connection_refused, local_port_refused_hint
 
-_EXECUTOR = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS)
+EXECUTOR = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS)
+_POOL_LIMIT = 16
+# Vite's Keep-Alive timeout is 5s; never reuse a conn pooled longer
+# than this, or we hit stale half-closed sockets (CLOSE-WAIT leaks).
+_POOL_TTL_SECONDS = 3
+
+_REQUEST_STRIP = {
+    "host",
+    "connection",
+    "keep-alive",
+    "proxy-connection",
+    "transfer-encoding",
+    "content-length",
+    "upgrade",
+    "te",
+    "trailer",
+}
+
+_RESPONSE_STRIP = {
+    "connection",
+    "keep-alive",
+    "proxy-connection",
+    "transfer-encoding",
+    "upgrade",
+    "te",
+    "trailer",
+}
 
 
 class HTTPProxy:
-    """Forwards raw HTTP requests to a local port and returns raw responses."""
+    """Forwards streamed HTTP requests to a local port with a keep-alive pool."""
 
     def __init__(self, services: dict[str, tuple[int, int]]) -> None:
         self.services = services
+        self._pools: dict[int, deque[http.client.HTTPConnection]] = {}
 
-    async def handle(self, frame: bytes, loop) -> bytes:
-        if len(frame) < REQUEST_ID_LEN:
-            return b""
-        raw_request = frame[REQUEST_ID_LEN:]
-        try:
-            return await loop.run_in_executor(_EXECUTOR, self._sync_forward, raw_request)
-        except Exception as exc:
-            return self._error_response(str(exc))
-
-    def _sync_forward(self, raw_request: bytes) -> bytes:
-        host = self._extract_host(raw_request)
-        service = host.split(".")[0] if host else "default"
-        port = self._local_port(service)
-        prepared = self._prepare_request(raw_request, port)
-        try:
-            with socket.create_connection(
-                ("127.0.0.1", port), timeout=REQUEST_TIMEOUT_SECONDS
-            ) as sock:
-                sock.sendall(prepared)
-                return self._read_response(sock)
-        except OSError as exc:
-            if is_connection_refused(exc):
-                return self._error_response(local_port_refused_hint(port))
-            raise
+    def resolve_port(self, raw_request: bytes) -> int:
+        service = (self._extract_host(raw_request) or "default").split(".")[0]
+        return self._local_port(service)
 
     def _local_port(self, service: str) -> int:
         if service in self.services:
@@ -51,57 +57,101 @@ class HTTPProxy:
             return next(iter(self.services.values()))[0]
         return 8080
 
-    def _prepare_request(self, raw_request: bytes, port: int) -> bytes:
-        head, sep, body = raw_request.partition(b"\r\n\r\n")
-        lines = head.split(b"\r\n")
-        if not lines:
-            return raw_request
-
-        new_lines = [lines[0]]
-        has_host = False
-        has_connection = False
-        for line in lines[1:]:
-            lower = line.lower()
-            if lower.startswith(b"host:"):
-                new_lines.append(f"Host: 127.0.0.1:{port}".encode())
-                has_host = True
-            elif lower.startswith(b"connection:"):
-                new_lines.append(b"Connection: close")
-                has_connection = True
-            else:
-                new_lines.append(line)
-
-        if not has_host:
-            new_lines.append(f"Host: 127.0.0.1:{port}".encode())
-        if not has_connection:
-            new_lines.append(b"Connection: close")
-
-        return b"\r\n".join(new_lines) + sep + body
-
-    def _read_response(self, sock: socket.socket) -> bytes:
-        response = http.client.HTTPResponse(sock)
-        response.begin()
-        out = BytesIO()
-        out.write(f"HTTP/1.1 {response.status} {response.reason}\r\n".encode())
-        for header, value in response.getheaders():
-            out.write(f"{header}: {value}\r\n".encode())
-        out.write(b"\r\n")
-        out.write(response.read())
-        return out.getvalue()
-
     def _extract_host(self, raw_request: bytes) -> str:
         for line in raw_request.split(b"\r\n"):
             if line.lower().startswith(b"host:"):
                 return line.split(b":", 1)[1].strip().decode("ascii", errors="replace")
         return ""
 
+    def _parse_request(self, raw_request: bytes, port: int):
+        head, sep, body = raw_request.partition(b"\r\n\r\n")
+        lines = head.split(b"\r\n")
+        first = lines[0].decode("latin-1") if lines else ""
+        parts = first.split(" ")
+        method = parts[0] if parts else "GET"
+        path = parts[1] if len(parts) > 1 else "/"
+        headers: dict[str, str] = {}
+        for line in lines[1:]:
+            if not line:
+                continue
+            k, _, v = line.decode("latin-1").partition(":")
+            key = k.strip()
+            if not key or key.lower() in _REQUEST_STRIP:
+                continue
+            if key.lower() == "host":
+                headers[key] = f"127.0.0.1:{port}"
+            else:
+                headers[key] = v.strip()
+        return method, path, headers, body
+
+    def request(self, raw_request: bytes, port: int):
+        """Send the request to the local app and return (resp, conn).
+
+        A pooled connection may have been closed by the local app's keep-alive
+        timeout; in that case retry once on a fresh connection.
+        """
+        method, path, headers, body = self._parse_request(raw_request, port)
+        conn, from_pool = self._get_conn(port)
+        try:
+            resp = self._send(method, path, headers, body, conn)
+            return resp, conn
+        except (http.client.HTTPException, OSError) as exc:
+            conn.close()
+            if is_connection_refused(exc):
+                raise ConnectionError(local_port_refused_hint(port)) from exc
+            if from_pool and self._is_stale_error(exc):
+                retry_conn = self._new_conn(port)
+                try:
+                    resp = self._send(method, path, headers, body, retry_conn)
+                    return resp, retry_conn
+                except (http.client.HTTPException, OSError) as exc2:
+                    retry_conn.close()
+                    if is_connection_refused(exc2):
+                        raise ConnectionError(local_port_refused_hint(port)) from exc2
+                    raise
+            raise
+
+    def _send(self, method, path, headers, body, conn: http.client.HTTPConnection):
+        conn.request(method, path, body=body, headers=headers)
+        return conn.getresponse()
+
     @staticmethod
-    def _error_response(message: str) -> bytes:
-        body = message.encode("utf-8")
-        return (
-            b"HTTP/1.1 502 Bad Gateway\r\n"
-            b"Content-Type: text/plain\r\n"
-            + f"Content-Length: {len(body)}\r\n".encode()
-            + b"Connection: close\r\n\r\n"
-            + body
+    def _is_stale_error(exc: BaseException) -> bool:
+        return isinstance(
+            exc,
+            (
+                http.client.RemoteDisconnected,
+                http.client.BadStatusLine,
+                http.client.IncompleteRead,
+                ConnectionError,
+            ),
         )
+
+    def release(self, port: int, resp, conn: http.client.HTTPConnection, reusable: bool) -> None:
+        if reusable and not getattr(resp, "will_close", True):
+            pool = self._pools.setdefault(port, deque())
+            if len(pool) < _POOL_LIMIT:
+                pool.append((conn, time.monotonic()))
+                return
+        conn.close()
+
+    def response_head(self, resp) -> bytes:
+        lines = [f"HTTP/1.1 {resp.status} {resp.reason or ''}".rstrip()]
+        for key, value in resp.getheaders():
+            if key.lower() in _RESPONSE_STRIP:
+                continue
+            lines.append(f"{key}: {value}")
+        return ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1")
+
+    def _new_conn(self, port: int) -> http.client.HTTPConnection:
+        return http.client.HTTPConnection("127.0.0.1", port, timeout=REQUEST_TIMEOUT_SECONDS)
+
+    def _get_conn(self, port: int) -> tuple[http.client.HTTPConnection, bool]:
+        pool = self._pools.setdefault(port, deque())
+        now = time.monotonic()
+        while pool:
+            conn, pooled_at = pool.popleft()
+            if now - pooled_at <= _POOL_TTL_SECONDS and conn.sock is not None:
+                return conn, True
+            conn.close()
+        return self._new_conn(port), False

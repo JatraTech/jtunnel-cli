@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import sys
-from urllib.parse import urljoin
+from urllib.parse import urlparse
 
 import websockets
 from websockets import exceptions as ws_exc
@@ -18,17 +19,45 @@ from .config import (
     tunnel_host,
 )
 from .errors import TunnelError, UserDisconnected
-from .http_proxy import HTTPProxy
+from .http_proxy import EXECUTOR, HTTPProxy
 from .protocol import (
+    FRAME_REQUEST_BODY,
+    FRAME_REQUEST_END,
+    FRAME_REQUEST_HEAD,
+    FRAME_RESPONSE_BODY,
+    FRAME_RESPONSE_END,
+    FRAME_RESPONSE_ERROR,
+    FRAME_RESPONSE_HEAD,
     HEARTBEAT_INTERVAL_SECONDS,
     MAX_CONCURRENT_REQUESTS,
     MAX_WS_MESSAGE_SIZE,
+    PROTOCOL_VERSION,
+    REQUEST_BODY_CHUNK,
     REQUEST_ID_LEN,
+    encode_frame,
     is_relay_frame,
 )
 from .ui import print_info, print_tunnels_table
 from .windows import is_connection_refused, tunnel_server_refused_hint
 from .ws_relay import WSRelay
+
+_SOCKET_BUFFER_SIZE = 1024 * 1024
+_DNS_CACHE: dict[str, str] = {}
+
+
+def _resolve_host(host: str) -> str:
+    cached = _DNS_CACHE.get(host)
+    if cached:
+        return cached
+    try:
+        infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
+        if infos:
+            ip = infos[0][4][0]
+            _DNS_CACHE[host] = ip
+            return ip
+    except OSError:
+        pass
+    return host
 
 
 def _format_server_error(step: str, error: str) -> str:
@@ -89,14 +118,11 @@ class TunnelClient:
                 backoff = min(backoff * 2, 30)
 
     async def _connect_and_serve(self) -> None:
-        uri = urljoin(tunnel_host(), "/")
+        uri = tunnel_host()
+        if not (uri.startswith("ws://") or uri.startswith("wss://")):
+            uri = "wss://" + uri
         try:
-            self.ws = await websockets.connect(
-                uri,
-                ping_interval=None,
-                ping_timeout=None,
-                max_size=MAX_WS_MESSAGE_SIZE,
-            )
+            self.ws = await _connect_tunnel(uri)
         except (OSError, ws_exc.WebSocketException) as exc:
             cause = exc.__cause__ or exc.__context__
             if is_connection_refused(exc) or (
@@ -107,7 +133,7 @@ class TunnelClient:
 
         self._relay = WSRelay(self.send, self.send_bytes)
 
-        await self.send({"type": "auth", "token": self.token})
+        await self.send({"type": "auth", "token": self.token, "proto": PROTOCOL_VERSION})
         await self._wait_for_ack("authentication")
 
         await self.send(
@@ -174,6 +200,7 @@ class TunnelClient:
 
     async def _read_loop(self) -> None:
         assert self._relay is not None
+        pending: dict[str, bytearray] = {}
         try:
             async for message in self.ws:
                 if isinstance(message, str):
@@ -189,23 +216,80 @@ class TunnelClient:
                     if is_relay_frame(message):
                         await self._relay.handle_data(message)
                     else:
-                        asyncio.create_task(self._handle_request(message))
+                        self._handle_request_frame(message, pending)
         except ws_exc.ConnectionClosed:
             raise
 
-    async def _handle_request(self, frame: bytes) -> None:
-        if len(frame) < REQUEST_ID_LEN:
+    def _handle_request_frame(self, frame: bytes, pending: dict[str, bytearray]) -> None:
+        if len(frame) < REQUEST_ID_LEN + 1:
             return
         req_id = frame[:REQUEST_ID_LEN].decode("ascii", errors="replace")
+        opcode = frame[REQUEST_ID_LEN]
+        payload = frame[REQUEST_ID_LEN + 1 :]
+
+        if opcode == FRAME_REQUEST_HEAD:
+            pending[req_id] = bytearray(payload)
+        elif opcode == FRAME_REQUEST_BODY:
+            buf = pending.get(req_id)
+            if buf is None:
+                return
+            buf += payload
+        elif opcode == FRAME_REQUEST_END:
+            buf = pending.pop(req_id, None)
+            if buf is None:
+                return
+            asyncio.create_task(self._handle_request(req_id, bytes(buf)))
+
+    async def _handle_request(self, req_id: str, raw_request: bytes) -> None:
+        loop = asyncio.get_running_loop()
+        port = self._http.resolve_port(raw_request)
 
         async with self._request_semaphore:
-            response_bytes = await self._http.handle(frame, asyncio.get_running_loop())
+            try:
+                resp, conn = await loop.run_in_executor(
+                    EXECUTOR, self._http.request, raw_request, port
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # Local app failure must surface as a 502, never as a
+                # dangling task exception.
+                try:
+                    await self.send_bytes(
+                        encode_frame(req_id, FRAME_RESPONSE_ERROR, str(exc).encode("utf-8"))
+                    )
+                except ws_exc.ConnectionClosed:
+                    pass
+                return
 
-        out = req_id.encode("ascii") + response_bytes
-        try:
-            await self.send_bytes(out)
-        except ws_exc.ConnectionClosed:
-            raise
+            try:
+                head = await loop.run_in_executor(EXECUTOR, self._http.response_head, resp)
+                # Head goes first so the browser gets status+headers as soon as
+                # the tunnel round trip completes; the body streams behind it.
+                await self.send_bytes(encode_frame(req_id, FRAME_RESPONSE_HEAD, head))
+                first = await loop.run_in_executor(EXECUTOR, resp.read, REQUEST_BODY_CHUNK)
+                if first:
+                    await self.send_bytes(encode_frame(req_id, FRAME_RESPONSE_BODY, first))
+
+                while True:
+                    chunk = await loop.run_in_executor(EXECUTOR, resp.read, REQUEST_BODY_CHUNK)
+                    if not chunk:
+                        break
+                    await self.send_bytes(encode_frame(req_id, FRAME_RESPONSE_BODY, chunk))
+
+                await self.send_bytes(encode_frame(req_id, FRAME_RESPONSE_END))
+                self._http.release(port, resp, conn, reusable=True)
+            except asyncio.CancelledError:
+                self._http.release(port, resp, conn, reusable=False)
+                raise
+            except Exception as exc:
+                self._http.release(port, resp, conn, reusable=False)
+                try:
+                    await self.send_bytes(
+                        encode_frame(req_id, FRAME_RESPONSE_ERROR, str(exc).encode("utf-8"))
+                    )
+                except ws_exc.ConnectionClosed:
+                    pass
 
     async def _heartbeat_loop(self) -> None:
         while not self._stop.is_set():
@@ -222,6 +306,28 @@ class TunnelClient:
 
     def stop(self) -> None:
         self._stop.set()
+
+
+async def _connect_tunnel(uri: str):
+    """Connect to the control WebSocket with DNS caching and TCP tuning."""
+    parsed = urlparse(uri)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+    ip = _resolve_host(host)
+    sock = socket.create_connection((ip, port), timeout=30)
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, _SOCKET_BUFFER_SIZE)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _SOCKET_BUFFER_SIZE)
+    except OSError:
+        pass
+    return await websockets.connect(
+        uri,
+        sock=sock,
+        ping_interval=None,
+        ping_timeout=None,
+        max_size=MAX_WS_MESSAGE_SIZE,
+    )
 
 
 def run(services: dict[str, tuple[int, int]]) -> None:

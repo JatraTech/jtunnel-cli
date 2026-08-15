@@ -140,6 +140,24 @@ Endpoints are hardcoded in the CLI (`jtunnel/config.py`):
 
 After login, port range and host also come from `tunnel.json` or claims in the device token.
 
+### Overrides
+
+Host and API endpoints can be overridden per-device without reinstalling. Resolution
+order for the tunnel host: `tunnel.json` → device token `tunnel_host` claim →
+`JTUNNEL_HOST` env → built-in default.
+
+| Env var | Purpose | Default |
+|---------|---------|---------|
+| `JTUNNEL_HOST` | Control-plane WebSocket URL (`ws://` or `wss://`) | `wss://jtunnel.new901.io` |
+| `JTUNNEL_API_BASE` | Admin API base URL | `https://admin.new901.io` |
+
+Example (Asia cutover without a reinstall):
+
+```bash
+export JTUNNEL_HOST=wss://sg.jtunnel.new901.io
+jtunnel login   # or: re-issue device token with the new tunnel_host claim
+```
+
 Local files under the config dir:
 
 | File | Purpose |
@@ -152,6 +170,15 @@ Local files under the config dir:
 ## Performance & limits
 
 See [JT_TUNNEL.md](../JT_TUNNEL.md#performance--limits) for request timeout (5 min), WebSocket frame size (32MB), concurrency, and latency expectations.
+
+Latency/throughput harness:
+
+```bash
+BASE_URL=https://jtunnel.new901.io:9001 scripts/bench.sh
+```
+
+Baseline numbers and client-side tuning (DNS resolver, TCP buffer sysctls) are
+documented in [docs/PERF_BASELINE.md](docs/PERF_BASELINE.md).
 
 ## Binary builds
 
