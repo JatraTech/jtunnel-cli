@@ -178,7 +178,8 @@ BASE_URL=https://jtunnel.new901.io:9001 scripts/bench.sh
 ```
 
 Baseline numbers and client-side tuning (DNS resolver, TCP buffer sysctls) are
-documented in [docs/PERF_BASELINE.md](docs/PERF_BASELINE.md).
+documented in [docs/PERF_BASELINE.md](docs/PERF_BASELINE.md). Caching relies on the
+browser + Vite ETag revalidation (the tunnel ETag cache is off by default).
 
 ## Binary builds
 

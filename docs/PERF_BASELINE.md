@@ -36,13 +36,17 @@ Local Vite alone (no tunnel): `/` = 2.7 ms, `/@vite/client` = 13 ms.
 | `/` TTFB (US relay) | ~1.0 s (RTT floor: DNS + TCP + TLS + 2×tunnel RTT) |
 | 204 KB asset | ~1.2 s / ~500 KB/s (larger TCP buffers + streaming) |
 | First-load page (HTTP/2 + streaming) | ~10–15 s |
-| Refresh/revalidation (ETag 304 cache) | near-0 per unchanged module |
+| Refresh/revalidation | pure browser cache + Vite ETag revalidation (tunnel cache disabled by default) |
 
 ## Ops notes for client machines
 
 - **DNS**: point `systemd-resolved` at a fast upstream and enable positive
   caching (`/etc/systemd/resolved.conf` `DNS=1.1.1.1 8.8.8.8`,
   `Cache=yes`), then `systemctl restart systemd-resolved`.
+- **ETag/304 tunnel cache** is disabled by default (`TUNNEL_ETAG_CACHE_TTL=0`). Caching is
+  handled by the browser + Vite's `Cache-Control: no-cache`/ETag revalidation, identical to
+  Tailscale's model. Set `TUNNEL_ETAG_CACHE_TTL=N` only if you want a (stale-window) shortcut
+  for rapid reloads within N seconds.
 - **TCP buffers** (bandwidth-delay product at 256 ms RTT):
   ```ini
   # /etc/sysctl.d/99-jtunnel.conf
