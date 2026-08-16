@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import http.client
 import time
 from collections import deque
@@ -11,10 +12,12 @@ from .protocol import MAX_CONCURRENT_REQUESTS, REQUEST_TIMEOUT_SECONDS
 from .windows import is_connection_refused, local_port_refused_hint
 
 EXECUTOR = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS)
+atexit.register(EXECUTOR.shutdown, wait=True)
 _POOL_LIMIT = 16
-# Vite's Keep-Alive timeout is 5s; never reuse a conn pooled longer
-# than this, or we hit stale half-closed sockets (CLOSE-WAIT leaks).
-_POOL_TTL_SECONDS = 3
+# Vite advertises Keep-Alive timeout=5s; reuse a pooled conn within that but
+# stay under it. (Stale reuse is retried once on a fresh connection, so a
+# slightly longer TTL is safe and rebuilds fewer connections.)
+_POOL_TTL_SECONDS = 4
 
 _REQUEST_STRIP = {
     "host",
@@ -142,6 +145,17 @@ class HTTPProxy:
                 continue
             lines.append(f"{key}: {value}")
         return ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1")
+
+    def close_pools(self) -> None:
+        """Close all pooled connections (idle sockets) on shutdown."""
+        for pool in self._pools.values():
+            while pool:
+                conn, _ = pool.popleft()
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+        self._pools.clear()
 
     def _new_conn(self, port: int) -> http.client.HTTPConnection:
         return http.client.HTTPConnection("127.0.0.1", port, timeout=REQUEST_TIMEOUT_SECONDS)

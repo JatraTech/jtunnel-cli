@@ -149,7 +149,6 @@ def _netsh_firewall_status(path: Path) -> FirewallStatus:
     if "No rules match the specified criteria" in output:
         return "MISSING"
 
-    target = str(path.resolve()).lower()
     program_lines = [
         line.strip()
         for line in output.splitlines()

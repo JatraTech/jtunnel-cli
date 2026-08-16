@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import errno
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from jtunnel.doctor import CheckResult, print_report, run_checks, run_doctor
 from jtunnel.windows import (

@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 from jtunnel.config import (
     api_base,
     delete_active_tunnel,

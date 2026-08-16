@@ -306,6 +306,7 @@ class TunnelClient:
 
     def stop(self) -> None:
         self._stop.set()
+        self._http.close_pools()
 
 
 async def _connect_tunnel(uri: str):
