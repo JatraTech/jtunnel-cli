@@ -14,6 +14,11 @@ from urllib.parse import urljoin
 import httpx
 
 from .config import api_base, save_tunnel_config
+from .windows import is_windows
+
+# Early "expired" polls often mean a different API worker (before Redis shared store)
+# or a stale Windows browser tab — keep polling briefly before failing.
+EXPIRED_GRACE_SECONDS = 60
 
 
 def start_device_flow() -> dict:
@@ -51,6 +56,11 @@ def poll_device_token(
                 "Run jtunnel login again."
             )
         if error == "authorization_expired":
+            if time.time() - start < EXPIRED_GRACE_SECONDS:
+                if on_wait:
+                    on_wait()
+                time.sleep(interval)
+                continue
             raise TimeoutError(
                 "Approval code expired. Run jtunnel login again."
             )
@@ -72,11 +82,23 @@ def _running_in_wsl() -> bool:
         return False
 
 
+def _open_windows_browser(verification_uri: str, cmd_path: str | None = None) -> bool:
+    cmd = cmd_path or os.environ.get("ComSpec", "cmd.exe")
+    if not Path(cmd).exists():
+        return False
+    subprocess.Popen(  # noqa: S603
+        [cmd, "/c", "start", "", verification_uri],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return True
+
+
 def open_browser(verification_uri: str) -> None:
     """Open the approval URL in the user's normal browser.
 
     Under WSL, Python's webbrowser often launches a Linux Chrome instance.
-    Prefer the Windows host browser via wslview / cmd.exe start.
+    On native Windows, webbrowser may miss the default profile — use cmd start.
     """
     try:
         if _running_in_wsl():
@@ -88,15 +110,13 @@ def open_browser(verification_uri: str) -> None:
                     stderr=subprocess.DEVNULL,
                 )
                 return
-            cmd = shutil.which("cmd.exe") or "/mnt/c/Windows/System32/cmd.exe"
-            if Path(cmd).exists():
-                # `start` opens the default Windows browser / existing Chrome profile.
-                subprocess.Popen(  # noqa: S603
-                    [cmd, "/c", "start", "", verification_uri],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+            if _open_windows_browser(
+                verification_uri,
+                shutil.which("cmd.exe") or "/mnt/c/Windows/System32/cmd.exe",
+            ):
                 return
+        if is_windows() and _open_windows_browser(verification_uri):
+            return
         webbrowser.open(verification_uri)
     except Exception:
         pass
